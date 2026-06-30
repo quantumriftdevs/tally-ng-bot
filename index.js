@@ -20,19 +20,7 @@ async function classifyMessage(message) {
       messages: [
         {
           role: "system",
-          content: `You classify Nigerian market trader WhatsApp messages into one of two types: "transaction" (recording a sale or expense) or "query" (asking about past records, debts, or totals).
-
-Return ONLY JSON, no explanation:
-{"intent": "transaction" or "query"}
-
-Examples:
-"Sold 5 bags rice ₦45,000" -> {"intent": "transaction"}
-"How much did I sell today" -> {"intent": "query"}
-"Mama Chioma owes me ₦20,000" -> {"intent": "transaction"}
-"How much does Mama Chioma owe me" -> {"intent": "query"}
-"What did I sell last week" -> {"intent": "query"}
-"Who dey owe me" -> {"intent": "query"}
-"How much I sell today" -> {"intent": "query"}`
+          content: "You classify Nigerian market trader WhatsApp messages into one of two types: transaction (recording a sale or expense) or query (asking about past records, debts, or totals). Return ONLY JSON, no explanation: {\"intent\": \"transaction\" or \"query\"}. Examples: 'Sold 5 bags rice 45000' -> transaction. 'How much did I sell today' -> query. 'Mama Chioma owes me 20000' -> transaction. 'How much does Mama Chioma owe me' -> query. 'Who dey owe me' -> query."
         },
         { role: "user", content: message }
       ],
@@ -62,14 +50,7 @@ async function parseTransaction(message) {
       messages: [
         {
           role: "system",
-          content: `You are a bookkeeping assistant for Nigerian market traders. Extract transaction info from messages, including debt/credit sales.
-
-Return ONLY JSON:
-{"type": "Sales" or "Expense", "amount": number, "description": "item", "customer": "name or empty string", "isDebt": true or false}
-
-If a sale mentions a customer name and they haven't paid yet (e.g. "she go pay later", "on credit", "owes me"), set isDebt to true and include the customer name.
-
-If unclear return: {"error": "unclear"}`
+          content: "You are a bookkeeping assistant for Nigerian market traders. Extract transaction info from messages, including debt or credit sales. Return ONLY JSON: {\"type\": \"Sales\" or \"Expense\", \"amount\": number, \"description\": \"item\", \"customer\": \"name or empty string\", \"isDebt\": true or false}. If a sale mentions a customer name and they have not paid yet, set isDebt to true and include the customer name. If unclear return: {\"error\": \"unclear\"}"
         },
         { role: "user", content: message }
       ],
@@ -89,6 +70,7 @@ If unclear return: {"error": "unclear"}`
 }
 
 async function parseQuery(message) {
+  const today = new Date().toLocaleDateString('en-NG');
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -100,20 +82,7 @@ async function parseQuery(message) {
       messages: [
         {
           role: "system",
-          content: `You convert a trader's natural language question into a structured query for their transaction records.
-
-Today's date is ${new Date().toLocaleDateString('en-NG')}.
-
-Return ONLY JSON:
-{"queryType": "date" or "customer" or "item" or "debt_total" or "general", "customer": "name or empty", "item": "item name or empty", "dateRange": "today" or "this_week" or "this_month" or "all"}
-
-Examples:
-"How much did I sell today" -> {"queryType":"date","customer":"","item":"","dateRange":"today"}
-"How much does Mama Chioma owe me" -> {"queryType":"customer","customer":"Mama Chioma","item":"","dateRange":"all"}
-"How many bags of rice did I sell" -> {"queryType":"item","customer":"","item":"rice","dateRange":"all"}
-"Who owes me money" -> {"queryType":"debt_total","customer":"","item":"","dateRange":"all"}
-"Who dey owe me" -> {"queryType":"debt_total","customer":"","item":"","dateRange":"all"}
-"Show my records this week" -> {"queryType":"date","customer":"","item":"","dateRange":"this_week"}`
+          content: "You convert a trader's natural language question into a structured query. Today's date is " + today + ". Return ONLY JSON: {\"queryType\": \"date\" or \"customer\" or \"item\" or \"debt_total\" or \"general\", \"customer\": \"name or empty\", \"item\": \"item name or empty\", \"dateRange\": \"today\" or \"this_week\" or \"this_month\" or \"all\"}. Examples: 'How much did I sell today' gives queryType date dateRange today. 'How much does Mama Chioma owe me' gives queryType customer customer Mama Chioma. 'How many bags of rice did I sell' gives queryType item item rice. 'Who owes me money' or 'Who dey owe me' gives queryType debt_total."
         },
         { role: "user", content: message }
       ],
@@ -133,7 +102,7 @@ Examples:
 
 async function saveToSheets(phone, parsed, rawMessage) {
   const date = new Date().toLocaleDateString('en-NG');
-  await fetch(`https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}`, {
+  await fetch("https://api.sheetbest.com/sheets/" + process.env.SHEET_BEST_ID, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -151,7 +120,7 @@ async function saveToSheets(phone, parsed, rawMessage) {
 
 async function getAllRecords(phone) {
   const cleanPhone = phone.replace('+', '');
-  const url = `https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}/search?Trader%20Phone=${encodeURIComponent(cleanPhone)}`;
+  const url = "https://api.sheetbest.com/sheets/" + process.env.SHEET_BEST_ID + "/search?Trader%20Phone=" + encodeURIComponent(cleanPhone);
   console.log('Query URL:', url);
   const response = await fetch(url);
   const data = await response.json();
@@ -181,12 +150,12 @@ async function handleQuery(phone, query) {
   const records = await getAllRecords(phone);
 
   if (records.length === 0) {
-    return `📊 No records yet. Start by sending a transaction like:\n"Sold 5 bags rice ₦45,000"`;
+    return "📊 No records yet. Start by sending a transaction like: \"Sold 5 bags rice ₦45,000\"";
   }
 
   if (query.queryType === 'debt_total') {
     const debts = records.filter(r => r['Is Debt'] === 'Yes');
-    if (debts.length === 0) return `✅ Nobody owes you money right now. Clean books!`;
+    if (debts.length === 0) return "✅ Nobody owes you money right now. Clean books!";
 
     const byCustomer = {};
     debts.forEach(r => {
@@ -194,13 +163,13 @@ async function handleQuery(phone, query) {
       byCustomer[name] = (byCustomer[name] || 0) + Number(r.Amount || 0);
     });
 
-    let msg = `💰 *Who owes you:*\n\n`;
+    let msg = "💰 *Who owes you:*\n\n";
     let total = 0;
-    for (const [name, amt] of Object.entries(byCustomer)) {
-      msg += `• ${name}: ₦${amt.toLocaleString()}\n`;
-      total += amt;
+    for (const name in byCustomer) {
+      msg += "• " + name + ": ₦" + byCustomer[name].toLocaleString() + "\n";
+      total += byCustomer[name];
     }
-    msg += `\n*Total owed:* ₦${total.toLocaleString()}`;
+    msg += "\n*Total owed:* ₦" + total.toLocaleString();
     return msg;
   }
 
@@ -208,15 +177,15 @@ async function handleQuery(phone, query) {
     const matches = records.filter(r =>
       (r.Customer || '').toLowerCase().includes(query.customer.toLowerCase())
     );
-    if (matches.length === 0) return `No records found for "${query.customer}".`;
+    if (matches.length === 0) return "No records found for \"" + query.customer + "\".";
 
     let total = 0;
-    let msg = `📋 *Records for ${query.customer}:*\n\n`;
+    let msg = "📋 *Records for " + query.customer + ":*\n\n";
     matches.forEach(r => {
-      msg += `• ${r.Description} - ₦${Number(r.Amount).toLocaleString()} (${r['Is Debt'] === 'Yes' ? 'unpaid' : 'paid'})\n`;
+      msg += "• " + r.Description + " - ₦" + Number(r.Amount).toLocaleString() + " (" + (r['Is Debt'] === 'Yes' ? 'unpaid' : 'paid') + ")\n";
       if (r['Is Debt'] === 'Yes') total += Number(r.Amount || 0);
     });
-    if (total > 0) msg += `\n*Owes you:* ₦${total.toLocaleString()}`;
+    if (total > 0) msg += "\n*Owes you:* ₦" + total.toLocaleString();
     return msg;
   }
 
@@ -224,16 +193,16 @@ async function handleQuery(phone, query) {
     const matches = records.filter(r =>
       (r.Description || '').toLowerCase().includes(query.item.toLowerCase())
     );
-    if (matches.length === 0) return `No records found for "${query.item}".`;
+    if (matches.length === 0) return "No records found for \"" + query.item + "\".";
 
     const total = matches.reduce((sum, r) => sum + Number(r.Amount || 0), 0);
-    return `📦 *${query.item} records:*\n\n${matches.length} transaction(s)\n*Total:* ₦${total.toLocaleString()}`;
+    return "📦 *" + query.item + " records:*\n\n" + matches.length + " transaction(s)\n*Total:* ₦" + total.toLocaleString();
   }
 
   const filtered = records.filter(r => isInDateRange(r.Date, query.dateRange));
 
   if (filtered.length === 0) {
-    return `No records found for that period.`;
+    return "No records found for that period.";
   }
 
   let sales = 0, expenses = 0;
@@ -243,17 +212,18 @@ async function handleQuery(phone, query) {
     else if (r.Type === 'Expense') expenses += amt;
   });
 
-  const rangeLabel = { today: 'Today', this_week: 'This Week', this_month: 'This Month', all: 'All Time' }[query.dateRange] || 'All Time';
+  const labels = { today: 'Today', this_week: 'This Week', this_month: 'This Month', all: 'All Time' };
+  const rangeLabel = labels[query.dateRange] || 'All Time';
   const profit = sales - expenses;
 
-  return `📊 *${rangeLabel} Summary*\n\n✅ Sales: ₦${sales.toLocaleString()}\n💸 Expenses: ₦${expenses.toLocaleString()}\n${profit >= 0 ? '📈' : '📉'} Profit: ₦${profit.toLocaleString()}\n\n${filtered.length} transaction(s)`;
+  return "📊 *" + rangeLabel + " Summary*\n\n✅ Sales: ₦" + sales.toLocaleString() + "\n💸 Expenses: ₦" + expenses.toLocaleString() + "\n" + (profit >= 0 ? '📈' : '📉') + " Profit: ₦" + profit.toLocaleString() + "\n\n" + filtered.length + " transaction(s)";
 }
 
 async function sendReply(to, message) {
   const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
   await twilioClient.messages.create({
-    from: `whatsapp:${process.env.TWILIO_WHATSAPP_NUMBER}`,
-    to: `whatsapp:${to}`,
+    from: "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER,
+    to: "whatsapp:" + to,
     body: message
   });
 }
@@ -268,9 +238,52 @@ app.post('/webhook', async (req, res) => {
   try {
     if (greetings.includes(lower)) {
       await sendReply(from,
-        `👋 *Welcome to Tally.ng!*\n\nI help you track sales, expenses, and customer debts — right here on WhatsApp.\n\n*Record things:*\n✅ "Sold 5 bags rice ₦45,000"\n💸 "Spent ₦3,000 on transport"\n📝 "Sold rice to Mama Chioma ₦20,000, she go pay later"\n\n*Ask me anything:*\n📊 "How much did I sell today"\n💰 "Who owes me money"\n📦 "How many bags of rice did I sell"\n\nLet's start! 🚀`
+        "👋 *Welcome to Tally.ng!*\n\nI help you track sales, expenses, and customer debts — right here on WhatsApp.\n\n*Record things:*\n✅ \"Sold 5 bags rice ₦45,000\"\n💸 \"Spent ₦3,000 on transport\"\n📝 \"Sold rice to Mama Chioma ₦20,000, she go pay later\"\n\n*Ask me anything:*\n📊 \"How much did I sell today\"\n💰 \"Who owes me money\"\n📦 \"How many bags of rice did I sell\"\n\nLet's start! 🚀"
       );
       return;
     }
 
-    if (lower === 'summary' || lower === '
+    if (lower === 'summary' || lower === 'report') {
+      const result = await handleQuery(from, { queryType: 'date', dateRange: 'all' });
+      await sendReply(from, result);
+      return;
+    }
+
+    const classified = await classifyMessage(message);
+
+    if (classified.intent === 'query') {
+      const query = await parseQuery(message);
+      const result = await handleQuery(from, query);
+      await sendReply(from, result);
+      return;
+    }
+
+    const parsed = await parseTransaction(message);
+
+    if (parsed.error) {
+      await sendReply(from,
+        "I no understand that one 😅\n\nTry:\n\"Sold 3 bags of rice for ₦45,000\"\nor ask me:\n\"How much did I sell today\""
+      );
+      return;
+    }
+
+    await saveToSheets(from, parsed, message);
+
+    const emoji = parsed.type === 'Sales' ? '✅' : '💸';
+    let reply = emoji + " *Recorded!*\n\n*" + parsed.type + ":* " + parsed.description + "\n*Amount:* ₦" + Number(parsed.amount).toLocaleString();
+    if (parsed.isDebt && parsed.customer) {
+      reply += "\n*Customer:* " + parsed.customer + " (unpaid)";
+    }
+    reply += "\n\nSend another or ask \"how much did I sell today\".";
+
+    await sendReply(from, reply);
+
+  } catch (err) {
+    console.error('Webhook error:', err);
+    await sendReply(from, 'Something went wrong, try again 🙏');
+  }
+});
+
+app.get('/', (req, res) => res.send('Tally.ng bot is running!'));
+
+app.listen(3000, () => console.log('Tally.ng running on port 3000'));
