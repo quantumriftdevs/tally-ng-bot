@@ -38,9 +38,12 @@ async function parseMessage(message) {
   }
 
   const raw = data.choices[0].message.content.trim();
+  console.log('Groq raw response:', raw);
 
   try {
-    return JSON.parse(raw.replace(/```json|```/g, '').trim());
+    const jsonMatch = raw.match(/\{.*\}/s);
+    if (!jsonMatch) return { error: "unclear" };
+    return JSON.parse(jsonMatch[0]);
   } catch(e) {
     console.error('Parse error:', raw);
     return { error: "unclear" };
@@ -98,7 +101,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    await saveToSheets(from, parsed, rawMessage);
+    await saveToSheets(from, parsed, message);
 
     const emoji = parsed.type === 'Sales' ? '✅' : '💸';
     await sendReply(from,
