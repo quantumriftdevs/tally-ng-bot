@@ -150,7 +150,8 @@ async function saveToSheets(phone, parsed, rawMessage) {
 }
 
 async function getAllRecords(phone) {
-  const url = `https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}/search?Trader%20Phone=${encodeURIComponent(phone)}`;
+  const cleanPhone = phone.replace('+', '');
+  const url = `https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}/search?Trader%20Phone=${encodeURIComponent(cleanPhone)}`;
   console.log('Query URL:', url);
   const response = await fetch(url);
   const data = await response.json();
@@ -272,47 +273,4 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    if (lower === 'summary' || lower === 'report') {
-      const result = await handleQuery(from, { queryType: 'date', dateRange: 'all' });
-      await sendReply(from, result);
-      return;
-    }
-
-    const classified = await classifyMessage(message);
-
-    if (classified.intent === 'query') {
-      const query = await parseQuery(message);
-      const result = await handleQuery(from, query);
-      await sendReply(from, result);
-      return;
-    }
-
-    const parsed = await parseTransaction(message);
-
-    if (parsed.error) {
-      await sendReply(from,
-        `I no understand that one 😅\n\nTry:\n"Sold 3 bags of rice for ₦45,000"\nor ask me:\n"How much did I sell today"`
-      );
-      return;
-    }
-
-    await saveToSheets(from, parsed, message);
-
-    const emoji = parsed.type === 'Sales' ? '✅' : '💸';
-    let reply = `${emoji} *Recorded!*\n\n*${parsed.type}:* ${parsed.description}\n*Amount:* ₦${Number(parsed.amount).toLocaleString()}`;
-    if (parsed.isDebt && parsed.customer) {
-      reply += `\n*Customer:* ${parsed.customer} (unpaid)`;
-    }
-    reply += `\n\nSend another or ask "how much did I sell today".`;
-
-    await sendReply(from, reply);
-
-  } catch (err) {
-    console.error('Webhook error:', err);
-    await sendReply(from, 'Something went wrong, try again 🙏');
-  }
-});
-
-app.get('/', (req, res) => res.send('Tally.ng bot is running!'));
-
-app.listen(3000, () => console.log('Tally.ng running on port 3000'));
+    if (lower === 'summary' || lower === '
