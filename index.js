@@ -15,70 +15,41 @@ async function parseMessage(message) {
     },
     body: JSON.stringify({
       model: "llama3-8b-8192",
-      messages: [{
-        role: "system",
-        content: `You are a bookkeeping assistant for Nigerian market traders. 
-Extract transaction info from user messages.
-Return ONLY a JSON object, no explanation, no markdown:
-{"type": "Sales" or "Expense", "amount": number, "description": "item"}
-If unclear return: {"error": "unclear"}`
-      }, {
-        role: "user",
-        content: message
-      }],
-      max_tokens: 200,
-      temperature: 0.1
-    })
-  });
-  const data = await response.json();
-  async function parseMessage(message) {
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: "llama3-8b-8192",
-      messages: [{
-        role: "system",
-        content: `You are a bookkeeping assistant for Nigerian market traders. 
-Extract transaction info from user messages.
-Return ONLY a JSON object, no explanation, no markdown, no backticks:
-{"type": "Sales" or "Expense", "amount": number, "description": "item"}
-If unclear return: {"error": "unclear"}`
-      }, {
-        role: "user",
-        content: message
-      }],
+      messages: [
+        {
+          role: "system",
+          content: `You are a bookkeeping assistant for Nigerian market traders. Extract transaction info from user messages. Return ONLY a JSON object, no explanation, no markdown, no backticks. Format: {"type": "Sales" or "Expense", "amount": number, "description": "item"}. If unclear return: {"error": "unclear"}`
+        },
+        {
+          role: "user",
+          content: message
+        }
+      ],
       max_tokens: 200,
       temperature: 0.1
     })
   });
 
   const data = await response.json();
-  
+
   if (!data.choices || !data.choices[0]) {
     console.error('Groq error:', JSON.stringify(data));
     return { error: "unclear" };
   }
 
-  const text = data.choices[0].message.content.trim();
-  
+  const raw = data.choices[0].message.content.trim();
+
   try {
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
+    return JSON.parse(raw.replace(/```json|```/g, '').trim());
   } catch(e) {
-    console.error('Parse error:', text);
+    console.error('Parse error:', raw);
     return { error: "unclear" };
   }
 }
 
-  return JSON.parse(text.replace(/```json|```/g, '').trim());
-}
-
 async function saveToSheets(phone, parsed, rawMessage) {
   const date = new Date().toLocaleDateString('en-NG');
-  await fetch(`https://sheet.best/api/sheets/${process.env.SHEET_BEST_ID}`, {
+  await fetch(`https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -127,7 +98,7 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    await saveToSheets(from, parsed, message);
+    await saveToSheets(from, parsed, rawMessage);
 
     const emoji = parsed.type === 'Sales' ? '✅' : '💸';
     await sendReply(from,
@@ -135,7 +106,7 @@ app.post('/webhook', async (req, res) => {
     );
 
   } catch (err) {
-    console.error(err);
+    console.error('Webhook error:', err);
     await sendReply(from, 'Something went wrong, try again 🙏');
   }
 });
