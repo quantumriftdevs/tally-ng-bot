@@ -1,6 +1,5 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const axios = require('axios');
 const twilio = require('twilio');
 
 const app = express();
@@ -8,37 +7,36 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(express.json());
 
 async function parseMessage(message) {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01"
+      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-6",
-      max_tokens: 500,
+      model: "llama3-8b-8192",
       messages: [{
-        role: "user",
-        content: `You are a bookkeeping assistant for Nigerian market traders.
-Extract transaction info from this message: "${message}"
-
-Return ONLY a JSON object, nothing else:
+        role: "system",
+        content: `You are a bookkeeping assistant for Nigerian market traders. 
+Extract transaction info from user messages.
+Return ONLY a JSON object, no explanation, no markdown:
 {"type": "Sales" or "Expense", "amount": number, "description": "item"}
-
 If unclear return: {"error": "unclear"}`
-      }]
+      }, {
+        role: "user",
+        content: message
+      }],
+      max_tokens: 200,
+      temperature: 0.1
     })
   });
   const data = await response.json();
-  const text = data.content[0].text;
+  const text = data.choices[0].message.content;
   return JSON.parse(text.replace(/```json|```/g, '').trim());
 }
 
 async function saveToSheets(phone, parsed, rawMessage) {
   const date = new Date().toLocaleDateString('en-NG');
-  const row = [phone, parsed.description, parsed.amount, parsed.type, date, rawMessage];
-  
   await fetch(`https://sheet.best/api/sheets/${process.env.SHEET_BEST_ID}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -68,13 +66,13 @@ async function sendReply(to, message) {
 app.post('/webhook', async (req, res) => {
   const message = req.body.Body;
   const from = req.body.From.replace('whatsapp:', '');
-  
+
   res.sendStatus(200);
 
   try {
     if (message.toLowerCase() === 'summary') {
-      await sendReply(from, 
-        `📊 *Tally.ng Summary*\n\nSend "today" to see today's records or keep recording transactions!`
+      await sendReply(from,
+        `📊 *Tally.ng*\n\nKeep recording your transactions!\n\nSend sales like:\n"Sold 5 bags rice ₦45,000"\n\nSend expenses like:\n"Spent ₦3,000 on transport"`
       );
       return;
     }
@@ -92,7 +90,7 @@ app.post('/webhook', async (req, res) => {
 
     const emoji = parsed.type === 'Sales' ? '✅' : '💸';
     await sendReply(from,
-      `${emoji} *Recorded!*\n\n*${parsed.type}:* ${parsed.description}\n*Amount:* ₦${Number(parsed.amount).toLocaleString()}\n\nSend another transaction or type *summary* to see your records.`
+      `${emoji} *Recorded!*\n\n*${parsed.type}:* ${parsed.description}\n*Amount:* ₦${Number(parsed.amount).toLocaleString()}\n\nSend another or type *summary*.`
     );
 
   } catch (err) {
