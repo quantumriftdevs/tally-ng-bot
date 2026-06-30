@@ -8,7 +8,6 @@ app.use(express.json());
 
 const greetings = ['hello', 'hi', 'hey', 'start', 'help', 'helo', 'hii'];
 
-// Detect if a message is a QUERY (asking for info) vs a TRANSACTION (recording info)
 async function classifyMessage(message) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -31,7 +30,9 @@ Examples:
 "How much did I sell today" -> {"intent": "query"}
 "Mama Chioma owes me ₦20,000" -> {"intent": "transaction"}
 "How much does Mama Chioma owe me" -> {"intent": "query"}
-"What did I sell last week" -> {"intent": "query"}`
+"What did I sell last week" -> {"intent": "query"}
+"Who dey owe me" -> {"intent": "query"}
+"How much I sell today" -> {"intent": "query"}`
         },
         { role: "user", content: message }
       ],
@@ -49,7 +50,6 @@ Examples:
   }
 }
 
-// Parse a transaction message into structured data
 async function parseTransaction(message) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -88,7 +88,6 @@ If unclear return: {"error": "unclear"}`
   }
 }
 
-// Parse a query message into a structured filter request
 async function parseQuery(message) {
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -113,6 +112,7 @@ Examples:
 "How much does Mama Chioma owe me" -> {"queryType":"customer","customer":"Mama Chioma","item":"","dateRange":"all"}
 "How many bags of rice did I sell" -> {"queryType":"item","customer":"","item":"rice","dateRange":"all"}
 "Who owes me money" -> {"queryType":"debt_total","customer":"","item":"","dateRange":"all"}
+"Who dey owe me" -> {"queryType":"debt_total","customer":"","item":"","dateRange":"all"}
 "Show my records this week" -> {"queryType":"date","customer":"","item":"","dateRange":"this_week"}`
         },
         { role: "user", content: message }
@@ -150,8 +150,11 @@ async function saveToSheets(phone, parsed, rawMessage) {
 }
 
 async function getAllRecords(phone) {
-  const response = await fetch(`https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}/search?Trader Phone=${encodeURIComponent(phone)}`);
+  const url = `https://api.sheetbest.com/sheets/${process.env.SHEET_BEST_ID}/search?Trader%20Phone=${encodeURIComponent(phone)}`;
+  console.log('Query URL:', url);
+  const response = await fetch(url);
   const data = await response.json();
+  console.log('Query result:', Array.isArray(data) ? data.length + ' records' : JSON.stringify(data).slice(0, 300));
   return Array.isArray(data) ? data : [];
 }
 
@@ -180,17 +183,16 @@ async function handleQuery(phone, query) {
     return `📊 No records yet. Start by sending a transaction like:\n"Sold 5 bags rice ₦45,000"`;
   }
 
-  // DEBT TOTAL — who owes money
   if (query.queryType === 'debt_total') {
     const debts = records.filter(r => r['Is Debt'] === 'Yes');
     if (debts.length === 0) return `✅ Nobody owes you money right now. Clean books!`;
-    
+
     const byCustomer = {};
     debts.forEach(r => {
       const name = r.Customer || 'Unknown';
       byCustomer[name] = (byCustomer[name] || 0) + Number(r.Amount || 0);
     });
-    
+
     let msg = `💰 *Who owes you:*\n\n`;
     let total = 0;
     for (const [name, amt] of Object.entries(byCustomer)) {
@@ -201,13 +203,12 @@ async function handleQuery(phone, query) {
     return msg;
   }
 
-  // CUSTOMER — specific person's balance
   if (query.queryType === 'customer' && query.customer) {
-    const matches = records.filter(r => 
+    const matches = records.filter(r =>
       (r.Customer || '').toLowerCase().includes(query.customer.toLowerCase())
     );
     if (matches.length === 0) return `No records found for "${query.customer}".`;
-    
+
     let total = 0;
     let msg = `📋 *Records for ${query.customer}:*\n\n`;
     matches.forEach(r => {
@@ -218,20 +219,18 @@ async function handleQuery(phone, query) {
     return msg;
   }
 
-  // ITEM — how much of a specific item sold
   if (query.queryType === 'item' && query.item) {
     const matches = records.filter(r =>
       (r.Description || '').toLowerCase().includes(query.item.toLowerCase())
     );
     if (matches.length === 0) return `No records found for "${query.item}".`;
-    
+
     const total = matches.reduce((sum, r) => sum + Number(r.Amount || 0), 0);
     return `📦 *${query.item} records:*\n\n${matches.length} transaction(s)\n*Total:* ₦${total.toLocaleString()}`;
   }
 
-  // DATE — filter by time range (default)
   const filtered = records.filter(r => isInDateRange(r.Date, query.dateRange));
-  
+
   if (filtered.length === 0) {
     return `No records found for that period.`;
   }
@@ -288,7 +287,6 @@ app.post('/webhook', async (req, res) => {
       return;
     }
 
-    // Default: treat as transaction
     const parsed = await parseTransaction(message);
 
     if (parsed.error) {
