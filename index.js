@@ -13,14 +13,14 @@ async function classifyMessage(message) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      "Authorization": "Bearer " + process.env.GROQ_API_KEY
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
-          content: "You classify Nigerian market trader WhatsApp messages into one of two types: transaction (recording a sale or expense) or query (asking about past records, debts, or totals). Return ONLY JSON, no explanation: {\"intent\": \"transaction\" or \"query\"}. Examples: 'Sold 5 bags rice 45000' -> transaction. 'How much did I sell today' -> query. 'Mama Chioma owes me 20000' -> transaction. 'How much does Mama Chioma owe me' -> query. 'Who dey owe me' -> query."
+          content: "You classify Nigerian market trader WhatsApp messages into one of two types: transaction (recording a sale or expense) or query (asking about past records, debts, or totals). Return ONLY JSON, no explanation: {\"intent\": \"transaction\" or \"query\"}. Examples: 'Sold 5 bags rice 45000' -> transaction. 'How much did I sell today' -> query. 'Who dey owe me' -> query."
         },
         { role: "user", content: message }
       ],
@@ -43,7 +43,7 @@ async function parseTransaction(message) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      "Authorization": "Bearer " + process.env.GROQ_API_KEY
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
@@ -75,14 +75,14 @@ async function parseQuery(message) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`
+      "Authorization": "Bearer " + process.env.GROQ_API_KEY
     },
     body: JSON.stringify({
       model: "llama-3.3-70b-versatile",
       messages: [
         {
           role: "system",
-          content: "You convert a trader's natural language question into a structured query. Today's date is " + today + ". Return ONLY JSON: {\"queryType\": \"date\" or \"customer\" or \"item\" or \"debt_total\" or \"general\", \"customer\": \"name or empty\", \"item\": \"item name or empty\", \"dateRange\": \"today\" or \"this_week\" or \"this_month\" or \"all\"}. Examples: 'How much did I sell today' gives queryType date dateRange today. 'How much does Mama Chioma owe me' gives queryType customer customer Mama Chioma. 'How many bags of rice did I sell' gives queryType item item rice. 'Who owes me money' or 'Who dey owe me' gives queryType debt_total."
+          content: "You convert a trader's natural language question into a structured query. Today is " + today + ". Return ONLY JSON: {\"queryType\": \"date\" or \"customer\" or \"item\" or \"debt_total\" or \"general\", \"customer\": \"name or empty\", \"item\": \"item name or empty\", \"dateRange\": \"today\" or \"this_week\" or \"this_month\" or \"all\"}. Examples: 'How much did I sell today' gives queryType date dateRange today. 'Who dey owe me' gives queryType debt_total. 'How much does Mama Chioma owe me' gives queryType customer. 'How many bags of rice did I sell' gives queryType item item rice."
         },
         { role: "user", content: message }
       ],
@@ -121,10 +121,8 @@ async function saveToSheets(phone, parsed, rawMessage) {
 async function getAllRecords(phone) {
   const cleanPhone = phone.replace('+', '');
   const url = "https://api.sheetbest.com/sheets/" + process.env.SHEET_BEST_ID + "/search?Trader%20Phone=" + encodeURIComponent(cleanPhone);
-  console.log('Query URL:', url);
   const response = await fetch(url);
   const data = await response.json();
-  console.log('Query result:', Array.isArray(data) ? data.length + ' records' : JSON.stringify(data).slice(0, 300));
   return Array.isArray(data) ? data : [];
 }
 
@@ -150,7 +148,7 @@ async function handleQuery(phone, query) {
   const records = await getAllRecords(phone);
 
   if (records.length === 0) {
-    return "📊 No records yet. Start by sending a transaction like: \"Sold 5 bags rice ₦45,000\"";
+    return "📊 No records yet. Start by sending a transaction like: Sold 5 bags rice 45,000";
   }
 
   if (query.queryType === 'debt_total') {
@@ -177,7 +175,7 @@ async function handleQuery(phone, query) {
     const matches = records.filter(r =>
       (r.Customer || '').toLowerCase().includes(query.customer.toLowerCase())
     );
-    if (matches.length === 0) return "No records found for \"" + query.customer + "\".";
+    if (matches.length === 0) return "No records found for " + query.customer;
 
     let total = 0;
     let msg = "📋 *Records for " + query.customer + ":*\n\n";
@@ -193,7 +191,7 @@ async function handleQuery(phone, query) {
     const matches = records.filter(r =>
       (r.Description || '').toLowerCase().includes(query.item.toLowerCase())
     );
-    if (matches.length === 0) return "No records found for \"" + query.item + "\".";
+    if (matches.length === 0) return "No records found for " + query.item;
 
     const total = matches.reduce((sum, r) => sum + Number(r.Amount || 0), 0);
     return "📦 *" + query.item + " records:*\n\n" + matches.length + " transaction(s)\n*Total:* ₦" + total.toLocaleString();
@@ -220,12 +218,16 @@ async function handleQuery(phone, query) {
 }
 
 async function sendReply(to, message) {
-  const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-  await twilioClient.messages.create({
-    from: "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER,
-    to: "whatsapp:" + to,
-    body: message
-  });
+  try {
+    const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+    await twilioClient.messages.create({
+      from: "whatsapp:" + process.env.TWILIO_WHATSAPP_NUMBER,
+      to: "whatsapp:" + to,
+      body: message
+    });
+  } catch (err) {
+    console.error('SendReply error:', err.message);
+  }
 }
 
 app.post('/webhook', async (req, res) => {
@@ -238,7 +240,7 @@ app.post('/webhook', async (req, res) => {
   try {
     if (greetings.includes(lower)) {
       await sendReply(from,
-        "👋 *Welcome to Tally.ng!*\n\nI help you track sales, expenses, and customer debts — right here on WhatsApp.\n\n*Record things:*\n✅ \"Sold 5 bags rice ₦45,000\"\n💸 \"Spent ₦3,000 on transport\"\n📝 \"Sold rice to Mama Chioma ₦20,000, she go pay later\"\n\n*Ask me anything:*\n📊 \"How much did I sell today\"\n💰 \"Who owes me money\"\n📦 \"How many bags of rice did I sell\"\n\nLet's start! 🚀"
+        "👋 *Welcome to Tally.ng!*\n\nI help you track sales, expenses, and customer debts — right here on WhatsApp.\n\n*Record things:*\n✅ Sold 5 bags rice 45,000\n💸 Spent 3,000 on transport\n📝 Sold rice to Mama Chioma 20,000, she go pay later\n\n*Ask me anything:*\n📊 How much did I sell today\n💰 Who owes me money\n📦 How many bags of rice did I sell\n\nLet's start! 🚀"
       );
       return;
     }
@@ -262,7 +264,7 @@ app.post('/webhook', async (req, res) => {
 
     if (parsed.error) {
       await sendReply(from,
-        "I no understand that one 😅\n\nTry:\n\"Sold 3 bags of rice for ₦45,000\"\nor ask me:\n\"How much did I sell today\""
+        "I no understand that one 😅\n\nTry:\nSold 3 bags of rice for 45,000\nor ask me:\nHow much did I sell today"
       );
       return;
     }
@@ -274,12 +276,12 @@ app.post('/webhook', async (req, res) => {
     if (parsed.isDebt && parsed.customer) {
       reply += "\n*Customer:* " + parsed.customer + " (unpaid)";
     }
-    reply += "\n\nSend another or ask \"how much did I sell today\".";
+    reply += "\n\nSend another or ask how much did I sell today.";
 
     await sendReply(from, reply);
 
   } catch (err) {
-    console.error('Webhook error:', err);
+    console.error('Webhook error:', err.message);
     await sendReply(from, 'Something went wrong, try again 🙏');
   }
 });
